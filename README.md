@@ -14,6 +14,12 @@ Uses a lot of memory
 </br>
 Cannot load compressed files
 
+EDIT from seb776
+- Made it a unity project else the project seems broken (broken script reference)
+- Originally made to work on builtin renderpipeline, this version runs in URP (even if only on a rendertexture for now)
+- Want to make it a ready to use solution => it would be really cool :)
+
+
 ## Example Images
 
 ![](/VolumeImages/1.png)
