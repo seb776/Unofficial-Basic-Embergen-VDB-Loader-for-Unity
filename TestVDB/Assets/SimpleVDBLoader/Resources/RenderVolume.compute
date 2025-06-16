@@ -9,6 +9,7 @@
 
 RWStructuredBuffer<uint2> ShadowBuffer;
 RWTexture2D<float4> Result;
+Texture2D<float4> MainRenderTexture;
 RWTexture3D<float> DDATextureWrite;
 Texture3D<float> DDATexture;
 float4x4 _CameraInverseProjection;
@@ -257,7 +258,7 @@ inline float3 MarchDDA(Ray ray, inout float3 Luminance)
                 float3 beerslaw = MultipleOctaveScattering(LightDensity, mu);
                 float3 powder = 1.0f - exp(-LightDensity * 2 * float3(0.8, 0.8, 1));
                 // float3 transmittance = 0;
-                // float3 Radiance = GetSkyRadiance(mapPos, -SunDir, 0, -SunDir, transmittance);
+                // float3 Radiance = GetSkyRadiance(mapPos, -SunDir, 0, -SunDir, transmittance); // TODO or reflection probe ?
                 float3 lum = unpackRGBE(ShadowBuffer[mapPos.x + mapPos.y * Size.x + mapPos.z * Size.x * Size.y].y) * beerslaw * lerp(2 * powder, 1, remap(mu, -1, 1, 0, 1)); // * transmittance + Radiance;
 
                 float3 transmittance2 = exp(-Density * float3(0.8, 0.8, 1));
@@ -265,7 +266,7 @@ inline float3 MarchDDA(Ray ray, inout float3 Luminance)
 
                 Luminance += integscatter * Transmission;
                 Transmission *= transmittance2;
-                if (Transmission.x < 0.01f)
+                if (Transmission.x < 0.01f) // TODO overluminance could also stop the loop ?
                     break;
             }
         }
@@ -279,7 +280,7 @@ static const int2 PerFrameOffset[4] =
 {
     { int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1) }
 };
-
+SamplerState linearClampSampler;
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
@@ -293,7 +294,9 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         Sun = saturate((1.5f / (PI * (0.0235f / 2.0f) * (0.0235f / 2.0f))));
     }
     float3 Transmission = MarchDDA(ray, Luminance);
-    Result[ProperID] = float4(0.1f * Transmission + Luminance + Sun * Transmission, 1);
+    // TODO Depth + align space + correct blending
+    // Additive blending works for now but we have a scale issue moving is faster in the "vdb" space than in the "world" space
+    Result[ProperID] = float4(Luminance + Sun * Transmission + MainRenderTexture.SampleLevel(linearClampSampler, (uv + .5)*.5, 0).xyz, 1);
 }
 
 

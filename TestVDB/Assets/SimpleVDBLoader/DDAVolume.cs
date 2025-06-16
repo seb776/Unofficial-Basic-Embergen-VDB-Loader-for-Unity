@@ -52,7 +52,7 @@ public class DDAVolume : MonoBehaviour
     
     private void CreateRenderTexture(ref RenderTexture ThisTex)
     {
-        ThisTex = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGBFloat);
+        ThisTex = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGBFloat);
         ThisTex.enableRandomWrite = true;
         ThisTex.Create();
     }
@@ -61,6 +61,7 @@ public class DDAVolume : MonoBehaviour
     void Start()
     {
         CreateRenderTexture(ref MainTex);
+        this.gameObject.GetComponent<Camera>().targetTexture = TestInputTex;
         DebugView.material.SetTexture("_BaseMap", MainTex);
         VolumeShader = Resources.Load<ComputeShader>("RenderVolume");
         var kernel = VolumeShader.FindKernel("CSMain");
@@ -399,11 +400,16 @@ public class DDAVolume : MonoBehaviour
         VolumeShader.SetMatrix("_CameraInverseProjection", Camera.main.projectionMatrix.inverse);
         VolumeShader.SetMatrix("CameraToWorld", Camera.main.cameraToWorldMatrix);
         CurFrame += 1.0f;
+        this.gameObject.GetComponent<Camera>().Render();
+        VolumeShader.SetTexture(0, "MainRenderTexture", TestInputTex);
         VolumeShader.SetTexture(0, "Result", MainTex);
         VolumeShader.Dispatch(0, Mathf.CeilToInt((float)Screen.width / 8.0f), Mathf.CeilToInt((float)Screen.height / 8.0f), 1);//Dispatch the main renderer
         //RenderTexture.active = destination;
         //GL.Clear(true, true, Color.red);
-        //Graphics.Blit(MainTex, destination);
+        //this.gameObject.GetComponent<Camera>().SetTargetBuffers(destination.colorBuffer, destination.depthBuffer);
+        //VolumeShader.SetBuffer(0, "Bla", destination.depthBuffer);
+        // TOODO https://discussions.unity.com/t/using-depth-from-rendertarget-in-shader/604230
+        //Graphics.Blit(MainTex, TestInputTex);
     }
 
 
