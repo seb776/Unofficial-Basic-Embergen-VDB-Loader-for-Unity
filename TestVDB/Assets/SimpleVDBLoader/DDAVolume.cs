@@ -400,9 +400,13 @@ public class DDAVolume : MonoBehaviour
         VolumeShader.SetMatrix("_CameraInverseProjection", Camera.main.projectionMatrix.inverse);
         VolumeShader.SetMatrix("CameraToWorld", Camera.main.cameraToWorldMatrix);
         CurFrame += 1.0f;
+        var camera = this.gameObject.GetComponent<Camera>();
+        VolumeShader.SetFloat("_NearClip", camera.nearClipPlane);
+        VolumeShader.SetFloat("_FarClip", camera.farClipPlane);
         this.gameObject.GetComponent<Camera>().Render();
         VolumeShader.SetTexture(0, "MainRenderTexture", TestInputTex);
         VolumeShader.SetTexture(0, "Result", MainTex);
+        VolumeShader.SetFloat("_MyTime", Time.realtimeSinceStartup);
         VolumeShader.Dispatch(0, Mathf.CeilToInt((float)Screen.width / 8.0f), Mathf.CeilToInt((float)Screen.height / 8.0f), 1);//Dispatch the main renderer
         //RenderTexture.active = destination;
         //GL.Clear(true, true, Color.red);
@@ -412,5 +416,11 @@ public class DDAVolume : MonoBehaviour
         //Graphics.Blit(MainTex, TestInputTex);
     }
 
-
+    void OnRenderObject()
+    {
+        // Solution comes from here
+        // https://discussions.unity.com/t/unity-6-urp-depth-texture-is-black-not-available/1560743/3
+        // Global texture no lkonger works the same since unity 6, but it's still accessible there
+        VolumeShader.SetTextureFromGlobal(0, "_CameraDepthTexture", "_CameraDepthTexture");
+    }
 }
