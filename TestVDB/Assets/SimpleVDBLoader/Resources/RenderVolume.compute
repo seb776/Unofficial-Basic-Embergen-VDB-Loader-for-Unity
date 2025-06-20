@@ -285,6 +285,7 @@ SamplerState linearClampSampler;
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
     int2 ProperID = id.xy; /// * 2 + PerFrameOffset[CurFrame % 4];
+    float2 nuv = float2((ProperID) / float2(ScreenWidth, ScreenHeight));
     float2 uv = float2((ProperID) / float2(ScreenWidth, ScreenHeight) * 2.0f - 1.0f);
     Ray ray = CreateCameraRay(uv);
     float3 Luminance;
@@ -296,7 +297,7 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     float3 Transmission = MarchDDA(ray, Luminance);
     // TODO Depth + align space + correct blending
     // Additive blending works for now but we have a scale issue moving is faster in the "vdb" space than in the "world" space
-    Result[ProperID] = float4(Luminance + Sun * Transmission + MainRenderTexture.SampleLevel(linearClampSampler, (uv + .5)*.5, 0).xyz, 1);
+    Result[ProperID] = float4(Luminance + Sun * Transmission + MainRenderTexture.SampleLevel(linearClampSampler, nuv, 0).xyz, 1);
 }
 
 
