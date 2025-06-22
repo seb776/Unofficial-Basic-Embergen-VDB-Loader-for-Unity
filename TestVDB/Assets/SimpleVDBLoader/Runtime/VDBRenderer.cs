@@ -5,15 +5,35 @@ using System.IO;
 using UnityEditor;
 using System.Threading.Tasks;
 using System.Threading;
+using System.Linq;
 
-public class DDAVolume : MonoBehaviour
+
+[System.Serializable]
+public struct UnityLight
+{
+    public Vector3 Position;
+    public Vector3 Direction;
+    public int Type;
+    public Vector3 Col;
+}
+
+public class VDBRenderer : MonoBehaviour
 {
     public Object FileIn;
-    public bool DoMeshes = true;
-    public bool DoIndirect = true;
+    public string Asset; // Equivalent of mesh in meshrenderer
+
+    public bool DoMeshes = true; // This has to move
+    public bool DoIndirect = true; // This has to move also (dependent on DoMeshes which has nothing to do directly with rendering the VDB)
+
     public float GlobalFogAdjustment = 1;
     public Vector3 FogColor = new Vector3(75 / 255.0f, 75 / 255.0f, 75 / 255.0f);
     public Vector3 BackgroundColor = new Vector3(0.1f, 0.1f, 0.1f);
+    [Range(1, 10)]
+    public int ShadowDistanceOffset = 1;
+
+    // Temp
+    public RenderTexture MainTex;
+    // Internals
     ComputeShader VolumeShader;
     ComputeBuffer ShadowBuffer;
     ComputeBuffer[] ValidVoxelSitesBuffer;
@@ -26,7 +46,6 @@ public class DDAVolume : MonoBehaviour
     ComputeBuffer SDFSHBuffer;
     ComputeBuffer CounterBuffer;
     ComputeBuffer SDFLocationBuffer;
-    public RenderTexture MainTex;
     RenderTexture VolumeTex;
     Mesh[] Meshes;
     Texture3D VolumeTex2;
@@ -35,29 +54,24 @@ public class DDAVolume : MonoBehaviour
     Vector4[] NonZeroVoxels;
     Texture3D PlaceHolderSDF;
 
-    [Range(1, 10)]
-    public int ShadowDistanceOffset = 1;
-    [System.Serializable]
-    public struct UnityLight {
-        public Vector3 Position;
-        public Vector3 Direction;
-        public int Type;
-        public Vector3 Col;
-    }
     UnityLight[] UnityLightData;
     Light[] UnityLights;
     OpenVDBReader[] VDBFileArray;
     Vector3[] Sizes;
+    MeshFilter[] MeshesToFollow;
+    public MeshRenderer DebugView;
+    int HasChangedInt = -1;
+    float CurFrame = 0;
+    public RenderTexture TestOutputTex;
+    public RenderTexture TestInputTex;
 
-    
     private void CreateRenderTexture(ref RenderTexture ThisTex)
     {
         ThisTex = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGBFloat);
         ThisTex.enableRandomWrite = true;
         ThisTex.Create();
     }
-    MeshFilter[] MeshesToFollow;
-    public MeshRenderer DebugView;
+
     void Start()
     {
         CreateRenderTexture(ref MainTex);
@@ -99,15 +113,17 @@ public class DDAVolume : MonoBehaviour
             UnityLightData[i].Type = (ThisLight.type == LightType.Point) ? 0 : (ThisLight.type == LightType.Directional) ? 1 : (ThisLight.type == LightType.Spot) ? 2 : 3;
             UnityLightData[i].Col = new Vector3(col[0], col[1], col[2]) * ThisLight.intensity;
         }
-        //Load VDB Files and Parse
 
-        string CachedString = AssetDatabase.GetAssetPath(FileIn);
+        //Load VDB Files and Parse
+        var assets = AssetDatabase.LoadAllAssetsAtPath(Asset);
+        //var assetFile = assets.First(el => el.name == "vdbFile");
+        string CachedString = AssetDatabase.GetAssetPath(FileIn); // TODO load from imported
         uint CurVox = 0;
-        string[] Materials;
+        string[] Materials; // TODO Why this is called Materials ?
         if(CachedString.Contains(".vdb")) {
             Materials = new string[]{Application.dataPath + CachedString.Replace("Assets", "").Replace("/" + FileIn.name, "\\" + FileIn.name)};            
         } else {
-            Materials = System.IO.Directory.GetFiles(Application.dataPath + CachedString.Replace("Assets", ""));
+            Materials = System.IO.Directory.GetFiles(Application.dataPath + CachedString.Replace("Assets", "")); // TODO whats it that ?
         }
         VDBFileArray = new OpenVDBReader[Materials.Length];
         List<string> Material3 = new List<string>();
@@ -116,7 +132,7 @@ public class DDAVolume : MonoBehaviour
             if(!Materials[i2].Contains("vdb")) continue;
             Material3.Add(Materials[i2]);
         }
-        Materials = Material3.ToArray();
+        Materials = Material3.ToArray(); // TODO why Materials ?
         Sizes = new Vector3[Materials.Length];
         ValidVoxelSitesBuffer = new ComputeBuffer[Materials.Length];
         ValidVoxelSitesBuffer2 = new ComputeBuffer[Materials.Length];
@@ -248,19 +264,17 @@ public class DDAVolume : MonoBehaviour
         SDFSHBuffer.Release();
         SDFLocationBuffer?.Release();
     }
-    int HasChangedInt = -1;
-    float CurFrame = 0;
-    public RenderTexture TestOutputTex;
-    public RenderTexture TestInputTex;
+
     private void LateUpdate()
     {
-        _OnRenderImage(TestInputTex, TestOutputTex);
+        _OnRenderImage(TestInputTex, TestOutputTex); // TODO this has to be cleaned (useless parameters...)
     }
     private void _OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         if(MeshesToFollow.Length == 0) DoMeshes = false;
         VolumeShader.SetBool("DoMeshes", DoMeshes);
         VolumeShader.SetBool("UseIndirect", DoIndirect);
+
         VolumeShader.SetFloat("FogAdjustment", GlobalFogAdjustment);
         VolumeShader.SetVector("BackgroundColor", BackgroundColor);
         VolumeShader.SetVector("FogColor", FogColor);
@@ -408,12 +422,6 @@ public class DDAVolume : MonoBehaviour
         VolumeShader.SetTexture(0, "Result", MainTex);
         VolumeShader.SetFloat("_MyTime", Time.realtimeSinceStartup);
         VolumeShader.Dispatch(0, Mathf.CeilToInt((float)Screen.width / 8.0f), Mathf.CeilToInt((float)Screen.height / 8.0f), 1);//Dispatch the main renderer
-        //RenderTexture.active = destination;
-        //GL.Clear(true, true, Color.red);
-        //this.gameObject.GetComponent<Camera>().SetTargetBuffers(destination.colorBuffer, destination.depthBuffer);
-        //VolumeShader.SetBuffer(0, "Bla", destination.depthBuffer);
-        // TOODO https://discussions.unity.com/t/using-depth-from-rendertarget-in-shader/604230
-        //Graphics.Blit(MainTex, TestInputTex);
     }
 
     void OnRenderObject()
