@@ -51,7 +51,7 @@ I'm just starting the journey with this, anyone interested to contribute is more
 # Contributors
 - [PJBomb2](https://github.com/Pjbomb2/Unofficial-Basic-Embergen-VDB-Loader-for-Unity)
 <br/>
-Original author of the VDB Voxel implementation
-- [Me z0rg](https://z0rg.dev)
+Original author of the VDB Voxel implementation<br/>
+- [z0rg](https://z0rg.dev)
 <br/>
-Maintainer, trying to make it a ready to go solution
+Maintainer, trying to make it a ready to go solution<br/>
