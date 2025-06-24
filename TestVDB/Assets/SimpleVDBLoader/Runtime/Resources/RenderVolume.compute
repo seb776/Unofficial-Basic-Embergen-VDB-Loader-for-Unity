@@ -2,7 +2,7 @@
 //#pragma use_dxc
 #include "UnityCG.cginc"
 #define PI 3.14159
-#pragma kernel CSMain
+#pragma kernel RenderVolumetric
 
 RWStructuredBuffer<uint2> ShadowBuffer;
 RWTexture2D<float4> Result;
@@ -306,7 +306,7 @@ float MyLinearEyeDepth(float rawdepth)
 }
 
 [numthreads(8, 8, 1)]
-void CSMain(uint3 id : SV_DispatchThreadID)
+void RenderVolumetric(uint3 id : SV_DispatchThreadID)
 {
     int2 ProperID = id.xy; /// * 2 + PerFrameOffset[CurFrame % 4];
     float2 nuv = float2((ProperID) / float2(ScreenWidth, ScreenHeight));

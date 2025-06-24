@@ -33,6 +33,8 @@ namespace SimpleVDBLoader
 
             var resolution = new GUIContent("Max Resolution");
             var prop = serializedObject.FindProperty("MaxResolution");
+            var propFileContent = serializedObject.FindProperty("VDBContent");
+            var fileContent = propFileContent.boxedValue as VDBFileContent;
             var selectedIndex = EditorGUILayout.Popup("Max resolution", prop.intValue, availableMaxResolutions);
             prop.intValue = selectedIndex;
             base.ApplyRevertGUI();

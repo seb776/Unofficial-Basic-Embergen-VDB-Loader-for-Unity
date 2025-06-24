@@ -8,19 +8,11 @@ using System.Threading;
 using System.Linq;
 
 
-[System.Serializable]
-public struct UnityLight
-{
-    public Vector3 Position;
-    public Vector3 Direction;
-    public int Type;
-    public Vector3 Col;
-}
-
-public class VDBRenderer : MonoBehaviour
+// Save before some big breaking changes
+public class VDBRendererBackup : MonoBehaviour
 {
     public Object FileIn;
-    public string Asset; // Equivalent of mesh in meshrenderer
+    public VDBFileContent Asset; // Equivalent of mesh in meshrenderer
 
     public bool DoMeshes = true; // This has to move
     public bool DoIndirect = true; // This has to move also (dependent on DoMeshes which has nothing to do directly with rendering the VDB)
@@ -125,6 +117,7 @@ public class VDBRenderer : MonoBehaviour
         } else {
             Materials = System.IO.Directory.GetFiles(Application.dataPath + CachedString.Replace("Assets", "")); // TODO whats it that ?
         }
+        // TODO move loading ? / parsing ?
         VDBFileArray = new OpenVDBReader[Materials.Length];
         List<string> Material3 = new List<string>();
         for(int i2 = 0; i2 < Materials.Length; i2++) {
@@ -281,8 +274,8 @@ public class VDBRenderer : MonoBehaviour
         
         bool HasChanged = HasChangedInt != -1;
         //Calculate minimum for bounding boxes
-        Vector3 Min = new Vector3(98999,99999,99999);
-        for(int i2 = 0; i2 < Meshes.Length; i2++) {
+        Vector3 Min = new Vector3(98999,99999,99999); // TODO why 98999,99999,99999 ?
+        for (int i2 = 0; i2 < Meshes.Length; i2++) {
             if(MeshesToFollow[i2].gameObject.transform.hasChanged) {
                 MeshesToFollow[i2].gameObject.transform.hasChanged = false;
                 HasChanged = true;
@@ -297,6 +290,7 @@ public class VDBRenderer : MonoBehaviour
             CounterBuffer.GetData(H);
             H[1] = 0;
             CounterBuffer.SetData(H);
+            // TODO 512 ? dependent on textures used
             VolumeShader.Dispatch(7, Mathf.CeilToInt(512 / 8.0f),Mathf.CeilToInt(512 / 8.0f),Mathf.CeilToInt(512 / 8.0f));
         }
 
