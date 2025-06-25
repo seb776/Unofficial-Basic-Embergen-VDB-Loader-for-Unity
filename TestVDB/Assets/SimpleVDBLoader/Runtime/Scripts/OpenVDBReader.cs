@@ -4,10 +4,6 @@ using UnityEngine;
 using System.IO;
 using UnityEditor;
 
-namespace OpenVDBReader
-{
-
-}
 public struct Grid
 {
     public Node5 RootNode;

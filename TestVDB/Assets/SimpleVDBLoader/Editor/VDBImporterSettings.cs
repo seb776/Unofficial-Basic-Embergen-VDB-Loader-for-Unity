@@ -4,24 +4,23 @@ using UnityEditor.AssetImporters;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 
-
 namespace SimpleVDBLoader
 {
     [CustomEditor(typeof(VDBImporter))]
-    public class VDBImporterSettiings : ScriptedImporterEditor
+    public class VDBImporterSettings : ScriptedImporterEditor
     {
         public override void OnInspectorGUI()
         {
             var availableMaxResolutions = new string[]
             {
-            "16",
-            "32",
-            "64",
-            "128",
-            "256",
-            "512",
-            "1024",
-            "No maximum",
+                "16",
+                "32",
+                "64",
+                "128",
+                "256",
+                "512",
+                "1024",
+                "No maximum",
             };
             // Compression (as an encoded video ?) As a texture 3D ? 2D array ?
             // To power of 2 ?
@@ -37,6 +36,8 @@ namespace SimpleVDBLoader
             var fileContent = propFileContent.boxedValue as VDBFileContent;
             var selectedIndex = EditorGUILayout.Popup("Max resolution", prop.intValue, availableMaxResolutions);
             prop.intValue = selectedIndex;
+            //fileContent.VDBContent.Weight(); // TODO ? to get actual disk size
+            // Also get in memory size ?
             base.ApplyRevertGUI();
         }
     }

@@ -23,7 +23,10 @@ public class VDBRenderer : MonoBehaviour
 {
     public VDBFileContent Asset; // Equivalent of mesh in meshrenderer
 
-
+    // This should be private
+    public bool HasLightChanged;
+    int HasChangedInt = -1;
+    float CurFrame = 0;
 
     public float GlobalFogAdjustment = 1;
     public Vector3 FogColor = new Vector3(75 / 255.0f, 75 / 255.0f, 75 / 255.0f);
@@ -36,8 +39,7 @@ public class VDBRenderer : MonoBehaviour
     public MeshRenderer DebugView;
     public RenderTexture TestOutputTex;
     public RenderTexture TestInputTex;
-    int HasChangedInt = -1;
-    float CurFrame = 0;
+
 
     // Internals
     ComputeShader VolumeShader;
@@ -52,7 +54,7 @@ public class VDBRenderer : MonoBehaviour
     ComputeBuffer SDFSHBuffer;
     ComputeBuffer CounterBuffer;
     ComputeBuffer SDFLocationBuffer;
-    RenderTexture VolumeTex;
+    RenderTexture VolumeTex; // Final render texture where actual volumetric is drawn
 
     MeshFilter[] MeshesToFollow;
     Mesh[] Meshes;
@@ -76,6 +78,7 @@ public class VDBRenderer : MonoBehaviour
 
     void Start()
     {
+        HasLightChanged = false;
         CreateRenderTexture(ref MainTex);
         this.gameObject.GetComponent<Camera>().targetTexture = TestInputTex;
         DebugView.material.SetTexture("_BaseMap", MainTex);
@@ -83,8 +86,6 @@ public class VDBRenderer : MonoBehaviour
         var kernel = VolumeShader.FindKernel("RenderVolumetric");
         Debug.Log("Dispatch ran: " + kernel);
         Debug.Log("OutputTex valid: " + MainTex.IsCreated());
-
-
         UnityLights = Object.FindObjectsOfType<Light>();
         //Load Unity Lights
         UnityLightData = new UnityLight[UnityLights.Length];
@@ -110,9 +111,9 @@ public class VDBRenderer : MonoBehaviour
             VDBFile.Size = OrigionalSize;
 
             int RepCount = 0;
-            OpenVDBReader.Node4 CurNode;
-            OpenVDBReader.Node3 CurNode2;
-            OpenVDBReader.Voxel Vox;
+            Node4 CurNode;
+            Node3 CurNode2;
+            Voxel Vox;
             Vector3Int ijk = new Vector3Int(0, 0, 0);
             Vector3 location2 = Vector3.zero;
             uint CurOffset = 0;
@@ -139,17 +140,17 @@ public class VDBRenderer : MonoBehaviour
                     }
                 }
             }
-            if (i3 == 0)
-            {
-                ValidVoxelSitesBuffer[i2] = new ComputeBuffer((int)CurOffset, 16);
-                ValidVoxelSitesBuffer[i2].SetData(NonZeroVoxels);
-                SHBuffer[i2] = new ComputeBuffer((int)CurOffset, 28);
-            }
-            else
-            {
-                ValidVoxelSitesBuffer2[i2] = new ComputeBuffer((int)CurOffset, 16);
-                ValidVoxelSitesBuffer2[i2].SetData(NonZeroVoxels);
-            }
+            //if (i3 == 0)
+            //{
+            //    ValidVoxelSitesBuffer[i2] = new ComputeBuffer((int)CurOffset, 16);
+            //    ValidVoxelSitesBuffer[i2].SetData(NonZeroVoxels);
+            //    SHBuffer[i2] = new ComputeBuffer((int)CurOffset, 28);
+            //}
+            //else
+            //{
+            //    ValidVoxelSitesBuffer2[i2] = new ComputeBuffer((int)CurOffset, 16);
+            //    ValidVoxelSitesBuffer2[i2].SetData(NonZeroVoxels);
+            //}
         }
         VolumeShader.SetVector("Size", VDBFile.Size);
 
@@ -194,41 +195,51 @@ public class VDBRenderer : MonoBehaviour
 
     private void LateUpdate()
     {
-        _OnRenderImage(TestInputTex, TestOutputTex); // TODO this has to be cleaned (useless parameters...)
+        _OnRenderImage(); // TODO this has to be cleaned (useless parameters...)
     }
-    private void _OnRenderImage(RenderTexture source, RenderTexture destination)
+
+    private void _handleLightChange()
     {
-        VolumeShader.SetInt("CurFrame", (int)Mathf.Floor(CurFrame));
         VolumeShader.SetInt("LightCount", UnityLights.Length);
-        int i = (int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length);
-        for(int i2 = 0; i2 < UnityLights.Length; i2++) {//If any unity lights have changed, reset the lighting data
+
+        for (int i2 = 0; i2 < UnityLights.Length; i2++)
+        {//If any unity lights have changed, reset the lighting data
             Light ThisLight = UnityLights[i2];
             Color col = ThisLight.color;
-            if(ThisLight.transform.hasChanged) {
-                HasChanged = true;
+            if (ThisLight.transform.hasChanged)
+            {
+                HasLightChanged = true;
                 ThisLight.transform.hasChanged = false;
                 UnityLightData[i2].Position = ThisLight.transform.position;
                 UnityLightData[i2].Direction = ThisLight.transform.forward;
-            } 
+            }
             int Type = (ThisLight.type == LightType.Point) ? 0 : (ThisLight.type == LightType.Directional) ? 1 : (ThisLight.type == LightType.Spot) ? 2 : 3;
-            if(UnityLightData[i2].Type != Type) {
-                HasChanged = true;
+            if (UnityLightData[i2].Type != Type)
+            {
+                HasLightChanged = true;
                 UnityLightData[i2].Type = Type;
             }
-            if(UnityLightData[i2].Type == 1) VolumeShader.SetVector("SunDir", UnityLightData[i2].Direction);
+            if (UnityLightData[i2].Type == 1) VolumeShader.SetVector("SunDir", UnityLightData[i2].Direction);
             Vector3 Col = new Vector3(col[0], col[1], col[2]) * ThisLight.intensity;
-            if(!UnityLightData[i2].Col.Equals(Col)) {
-                HasChanged = true;
+            if (!UnityLightData[i2].Col.Equals(Col))
+            {
+                HasLightChanged = true;
                 UnityLightData[i2].Col = Col;
             }
         }
-        if(HasChanged) UnityLightBuffer.SetData(UnityLightData);
+        if (HasLightChanged) UnityLightBuffer.SetData(UnityLightData);
+    }
 
-        VolumeShader.SetBool("ResetHistory", HasChanged);
+    private void _OnRenderImage()
+    {
+        _handleLightChange();
+        int i = (int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length);
+        VolumeShader.SetInt("CurFrame", (int)Mathf.Floor(CurFrame));
+        VolumeShader.SetBool("ResetHistory", HasLightChanged);
         VolumeShader.SetBuffer(2, "SH", SHBuffer[i]);
         VolumeShader.SetBuffer(0, "SH", SHBuffer[i]);
         VolumeShader.SetBuffer(3, "SH", SHBuffer[i]);
-        if(Sizes.Length > 1 || CurFrame < 2 || HasChanged) {//Rebuild the Volume Texture
+        if(Sizes.Length > 1 || CurFrame < 2 || HasLightChanged) {//Rebuild the Volume Texture
         	VolumeShader.SetBool("Copy1", false);
             VolumeShader.SetVector("Size", Sizes[(int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length)]);
             VolumeShader.SetBuffer(1, "NonZeroVoxels", ValidVoxelSitesBuffer[i]);
@@ -245,11 +256,11 @@ public class VDBRenderer : MonoBehaviour
 
             Graphics.CopyTexture(VolumeTex, VolumeTex2);
         }
-        if(HasChangedInt != -1) {
+        if(HasChangedInt != -1) { // TODO WTF ?
             if(HasChangedInt == i) {
                 HasChangedInt = -1;
             }
-        } else if(HasChanged) HasChangedInt = i;
+        } else if(HasLightChanged) HasChangedInt = i;
 
         VolumeShader.SetTexture(0, "DDATexture", VolumeTex2);
         VolumeShader.SetTexture(2, "DDATexture", VolumeTex2);
@@ -257,27 +268,29 @@ public class VDBRenderer : MonoBehaviour
         
         VolumeShader.SetInt("ShadowDistanceOffset", ShadowDistanceOffset);
 
-        if(CurFrame < 2 || HasChanged || Sizes.Length > 1 || true) {VolumeShader.Dispatch(2, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1);}//Calculate the Volume Shading
+        if(CurFrame < 2 || HasLightChanged || Sizes.Length > 1 || true) {
+            VolumeShader.Dispatch(2, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1);
+        }//Calculate the Volume Shading
 
 
+        Camera.main.Render(); // Ensure we have up to date color + depth
         VolumeShader.SetMatrix("_CameraInverseProjection", Camera.main.projectionMatrix.inverse);
         VolumeShader.SetMatrix("CameraToWorld", Camera.main.cameraToWorldMatrix);
-        CurFrame += 1.0f;
-        var camera = this.gameObject.GetComponent<Camera>();
-        VolumeShader.SetFloat("_NearClip", camera.nearClipPlane);
-        VolumeShader.SetFloat("_FarClip", camera.farClipPlane);
-        this.gameObject.GetComponent<Camera>().Render();
+        VolumeShader.SetFloat("_NearClip", Camera.main.nearClipPlane);
+        VolumeShader.SetFloat("_FarClip", Camera.main.farClipPlane);
         VolumeShader.SetTexture(0, "MainRenderTexture", TestInputTex);
         VolumeShader.SetTexture(0, "Result", MainTex);
-        VolumeShader.SetFloat("_MyTime", Time.realtimeSinceStartup);
+        VolumeShader.SetFloat("_MyTime", Time.realtimeSinceStartup); // TODO rename MyTime
         VolumeShader.Dispatch(0, Mathf.CeilToInt((float)Screen.width / 8.0f), Mathf.CeilToInt((float)Screen.height / 8.0f), 1);//Dispatch the main renderer
+        
+        CurFrame += 1.0f;
     }
 
     void OnRenderObject()
     {
         // Solution comes from here
         // https://discussions.unity.com/t/unity-6-urp-depth-texture-is-black-not-available/1560743/3
-        // Global texture no lkonger works the same since unity 6, but it's still accessible there
+        // Global texture no longer works the same since unity 6, but it's still accessible there
         VolumeShader.SetTextureFromGlobal(0, "_CameraDepthTexture", "_CameraDepthTexture");
     }
 }
