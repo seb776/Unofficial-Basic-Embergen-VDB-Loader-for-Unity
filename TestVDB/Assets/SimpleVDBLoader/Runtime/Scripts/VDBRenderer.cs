@@ -8,25 +8,20 @@ using System.Threading;
 using System.Linq;
 
 
-[System.Serializable]
-public struct UnityLight
+
+// TODO this can be a first step to animation (simply storing each frame separately)
+// Useless for now only a test idea
+public class VDBRenderFrame
 {
-    public Vector3 Position;
-    public Vector3 Direction;
-    public int Type;
-    public Vector3 Col;
+
 }
 
-// TODO Separate AnimatedVDBRenderer?
 
-public class VDBRenderer : MonoBehaviour
+
+public class VDBRenderer : MonoBehaviour, IVDBRenderer
 {
-    public VDBFileContent Asset; // Equivalent of mesh in meshrenderer
-
-    // This should be private
-    public bool HasLightChanged;
-    int HasChangedInt = -1;
-    float CurFrame = 0;
+    public int RenderOrder { get; set; }
+    public VDBFileContent Asset { get; set; }
 
     public float GlobalFogAdjustment = 1;
     public Vector3 FogColor = new Vector3(75 / 255.0f, 75 / 255.0f, 75 / 255.0f);
@@ -34,70 +29,22 @@ public class VDBRenderer : MonoBehaviour
     [Range(1, 10)]
     public int ShadowDistanceOffset = 1;
 
-    // Temp
-    public RenderTexture MainTex;
-    public MeshRenderer DebugView;
-    public RenderTexture TestOutputTex;
-    public RenderTexture TestInputTex;
-
 
     // Internals
-    ComputeShader VolumeShader;
+    ComputeShader VolumeShader; // TODO go to renderer feature
     ComputeBuffer ShadowBuffer;
-    ComputeBuffer[] ValidVoxelSitesBuffer; // Array are for animation (each represneting a frame)
-    ComputeBuffer[] ValidVoxelSitesBuffer2;
-    ComputeBuffer[] IndexBuffers;
-    ComputeBuffer[] VertexBuffers;
-    ComputeBuffer UnityLightBuffer;
-    ComputeBuffer[] SHBuffer;
-    ComputeBuffer ValidSDFSitesBuffer;
-    ComputeBuffer SDFSHBuffer;
-    ComputeBuffer CounterBuffer;
-    ComputeBuffer SDFLocationBuffer;
-    RenderTexture VolumeTex; // Final render texture where actual volumetric is drawn
 
-    MeshFilter[] MeshesToFollow;
-    Mesh[] Meshes;
-    Texture3D VolumeTex2;
-    Texture3D SDFTex2;
-    RenderTexture SDFTexture;
-    Vector4[] NonZeroVoxels;
-    Texture3D PlaceHolderSDF;
+    ComputeBuffer ValidVoxelSitesBuffer; 
+    ComputeBuffer ValidVoxelSitesBuffer2;
+    Vector4[] NonZeroVoxels; // TODO This can go to importer instead of here ?
+    RenderTexture VolumeTex; // DDATexture write // This appears only used once for generating the VolumeTex2, can be moved to importer ?
+    Texture3D VolumeTex2; // DDATexture read // Unsure but appears to stores indices for DDAAlgorithm, can be moved to importer ?
 
-    UnityLight[] UnityLightData;
-    Light[] UnityLights;
-    Vector3[] Sizes;
+    Vector3 Size; // TODO This can be obtained from the Asset ?
 
-
-    private void CreateRenderTexture(ref RenderTexture ThisTex)
-    {
-        ThisTex = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGBFloat);
-        ThisTex.enableRandomWrite = true;
-        ThisTex.Create();
-    }
 
     void Start()
     {
-        HasLightChanged = false;
-        CreateRenderTexture(ref MainTex);
-        this.gameObject.GetComponent<Camera>().targetTexture = TestInputTex;
-        DebugView.material.SetTexture("_BaseMap", MainTex);
-        VolumeShader = Resources.Load<ComputeShader>("RenderVolume");
-        var kernel = VolumeShader.FindKernel("RenderVolumetric");
-        Debug.Log("Dispatch ran: " + kernel);
-        Debug.Log("OutputTex valid: " + MainTex.IsCreated());
-        UnityLights = Object.FindObjectsOfType<Light>();
-        //Load Unity Lights
-        UnityLightData = new UnityLight[UnityLights.Length];
-        for(int i = 0; i < UnityLights.Length; i++) {
-            Light ThisLight = UnityLights[i];
-            Color col = ThisLight.color; 
-            UnityLightData[i].Position = ThisLight.transform.position;
-            UnityLightData[i].Direction = ThisLight.transform.forward;
-            UnityLightData[i].Type = (ThisLight.type == LightType.Point) ? 0 : (ThisLight.type == LightType.Directional) ? 1 : (ThisLight.type == LightType.Spot) ? 2 : 3;
-            UnityLightData[i].Col = new Vector3(col[0], col[1], col[2]) * ThisLight.intensity;
-        }
-
         //Load VDB Files and Parse
         // Asset.VDBContent Already parsed
         // TODO perhaps this could be done in the importer instead of here
@@ -111,9 +58,9 @@ public class VDBRenderer : MonoBehaviour
             VDBFile.Size = OrigionalSize;
 
             int RepCount = 0;
-            Node4 CurNode;
-            Node3 CurNode2;
-            Voxel Vox;
+            OpenVDBReader.Node4 CurNode;
+            OpenVDBReader.Node3 CurNode2;
+            OpenVDBReader.Voxel Vox;
             Vector3Int ijk = new Vector3Int(0, 0, 0);
             Vector3 location2 = Vector3.zero;
             uint CurOffset = 0;
@@ -140,23 +87,16 @@ public class VDBRenderer : MonoBehaviour
                     }
                 }
             }
-            //if (i3 == 0)
-            //{
-            //    ValidVoxelSitesBuffer[i2] = new ComputeBuffer((int)CurOffset, 16);
-            //    ValidVoxelSitesBuffer[i2].SetData(NonZeroVoxels);
-            //    SHBuffer[i2] = new ComputeBuffer((int)CurOffset, 28);
-            //}
-            //else
-            //{
-            //    ValidVoxelSitesBuffer2[i2] = new ComputeBuffer((int)CurOffset, 16);
-            //    ValidVoxelSitesBuffer2[i2].SetData(NonZeroVoxels);
-            //}
+            ValidVoxelSitesBuffer = new ComputeBuffer((int)CurOffset, 16); // TODO Why here ? we appear to jsut ignore previous values and leak memory
+            ValidVoxelSitesBuffer.SetData(NonZeroVoxels);
         }
-        VolumeShader.SetVector("Size", VDBFile.Size);
+
 
         //Initialize Textures
         VolumeTex2 = new Texture3D((int)Sizes[0].x, (int)Sizes[0].y, (int)Sizes[0].z, TextureFormat.RGFloat, false);
+
         Debug.Log("Active Voxels: " + NonZeroVoxels.Length + ", Inactive Voxels: " + (VolumeTex2.width * VolumeTex2.height * VolumeTex2.depth - NonZeroVoxels.Length));
+        
         VolumeTex = new RenderTexture((int)Sizes[0].x, (int)Sizes[0].y, 0, RenderTextureFormat.RGFloat, RenderTextureReadWrite.sRGB);
         VolumeTex.enableRandomWrite = true;
         VolumeTex.volumeDepth = (int)Sizes[0].z;
@@ -165,132 +105,16 @@ public class VDBRenderer : MonoBehaviour
 
 
         ShadowBuffer = new ComputeBuffer(VolumeTex2.width * VolumeTex2.height * VolumeTex2.depth, 8);
-        UnityLightBuffer = new ComputeBuffer(UnityLights.Length, 40);
-        VolumeShader.SetBuffer(2, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(0, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(1, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(3, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(2, "UnityLights", UnityLightBuffer);
-        VolumeShader.SetBuffer(0, "UnityLights", UnityLightBuffer);
-        VolumeShader.SetInt("ScreenWidth", Screen.width);
-        VolumeShader.SetInt("ScreenHeight", Screen.height);
+
+
     }
 
     void OnApplicationQuit()
     {
-        UnityLightBuffer.Release();
         VolumeTex.Release();
         ShadowBuffer.Release();
-        if (ValidVoxelSitesBuffer != null) for(int i = 0; i < ValidVoxelSitesBuffer.Length; i++) ValidVoxelSitesBuffer[i].Release();
-        if (ValidVoxelSitesBuffer2 != null) for(int i = 0; i < ValidVoxelSitesBuffer2.Length; i++) ValidVoxelSitesBuffer2[i]?.Release();
-        if (SHBuffer != null) for(int i = 0; i < SHBuffer.Length; i++) SHBuffer[i].Release();
-        if (IndexBuffers != null) for(int i = 0; i < IndexBuffers.Length; i++) IndexBuffers[i].Release();
-        if (VertexBuffers != null) for(int i = 0; i < VertexBuffers.Length; i++) VertexBuffers[i].Release();
-        SDFTexture.Release();
-        CounterBuffer.Release();
-        ValidSDFSitesBuffer.Release();
-        SDFSHBuffer.Release();
-        SDFLocationBuffer?.Release();
-    }
+        ValidVoxelSitesBuffer.Release();
+        ValidVoxelSitesBuffer2.Release();
 
-    private void LateUpdate()
-    {
-        _OnRenderImage(); // TODO this has to be cleaned (useless parameters...)
-    }
-
-    private void _handleLightChange()
-    {
-        VolumeShader.SetInt("LightCount", UnityLights.Length);
-
-        for (int i2 = 0; i2 < UnityLights.Length; i2++)
-        {//If any unity lights have changed, reset the lighting data
-            Light ThisLight = UnityLights[i2];
-            Color col = ThisLight.color;
-            if (ThisLight.transform.hasChanged)
-            {
-                HasLightChanged = true;
-                ThisLight.transform.hasChanged = false;
-                UnityLightData[i2].Position = ThisLight.transform.position;
-                UnityLightData[i2].Direction = ThisLight.transform.forward;
-            }
-            int Type = (ThisLight.type == LightType.Point) ? 0 : (ThisLight.type == LightType.Directional) ? 1 : (ThisLight.type == LightType.Spot) ? 2 : 3;
-            if (UnityLightData[i2].Type != Type)
-            {
-                HasLightChanged = true;
-                UnityLightData[i2].Type = Type;
-            }
-            if (UnityLightData[i2].Type == 1) VolumeShader.SetVector("SunDir", UnityLightData[i2].Direction);
-            Vector3 Col = new Vector3(col[0], col[1], col[2]) * ThisLight.intensity;
-            if (!UnityLightData[i2].Col.Equals(Col))
-            {
-                HasLightChanged = true;
-                UnityLightData[i2].Col = Col;
-            }
-        }
-        if (HasLightChanged) UnityLightBuffer.SetData(UnityLightData);
-    }
-
-    private void _OnRenderImage()
-    {
-        _handleLightChange();
-        int i = (int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length);
-        VolumeShader.SetInt("CurFrame", (int)Mathf.Floor(CurFrame));
-        VolumeShader.SetBool("ResetHistory", HasLightChanged);
-        VolumeShader.SetBuffer(2, "SH", SHBuffer[i]);
-        VolumeShader.SetBuffer(0, "SH", SHBuffer[i]);
-        VolumeShader.SetBuffer(3, "SH", SHBuffer[i]);
-        if(Sizes.Length > 1 || CurFrame < 2 || HasLightChanged) {//Rebuild the Volume Texture
-        	VolumeShader.SetBool("Copy1", false);
-            VolumeShader.SetVector("Size", Sizes[(int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length)]);
-            VolumeShader.SetBuffer(1, "NonZeroVoxels", ValidVoxelSitesBuffer[i]);
-            VolumeShader.SetTexture(1, "DDATextureWrite", VolumeTex);
-            VolumeShader.SetTexture(3, "DDATextureWrite", VolumeTex);
-            VolumeShader.Dispatch(3, Mathf.CeilToInt(Sizes[i].x / 8.0f), Mathf.CeilToInt(Sizes[i].y / 8.0f), Mathf.CeilToInt(Sizes[i].z / 8.0f));
-    
-            VolumeShader.Dispatch(1, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1);
-            if(ValidVoxelSitesBuffer2[i] != null) {
-                VolumeShader.SetBuffer(1, "NonZeroVoxels", ValidVoxelSitesBuffer2[i]);
-            	VolumeShader.SetBool("Copy1", true);
-                VolumeShader.Dispatch(1, Mathf.CeilToInt(ValidVoxelSitesBuffer2[i].count / 1023.0f), 1, 1);
-            }
-
-            Graphics.CopyTexture(VolumeTex, VolumeTex2);
-        }
-        if(HasChangedInt != -1) { // TODO WTF ?
-            if(HasChangedInt == i) {
-                HasChangedInt = -1;
-            }
-        } else if(HasLightChanged) HasChangedInt = i;
-
-        VolumeShader.SetTexture(0, "DDATexture", VolumeTex2);
-        VolumeShader.SetTexture(2, "DDATexture", VolumeTex2);
-        VolumeShader.SetBuffer(2, "NonZeroVoxels", ValidVoxelSitesBuffer[i]);
-        
-        VolumeShader.SetInt("ShadowDistanceOffset", ShadowDistanceOffset);
-
-        if(CurFrame < 2 || HasLightChanged || Sizes.Length > 1 || true) {
-            VolumeShader.Dispatch(2, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1);
-        }//Calculate the Volume Shading
-
-
-        Camera.main.Render(); // Ensure we have up to date color + depth
-        VolumeShader.SetMatrix("_CameraInverseProjection", Camera.main.projectionMatrix.inverse);
-        VolumeShader.SetMatrix("CameraToWorld", Camera.main.cameraToWorldMatrix);
-        VolumeShader.SetFloat("_NearClip", Camera.main.nearClipPlane);
-        VolumeShader.SetFloat("_FarClip", Camera.main.farClipPlane);
-        VolumeShader.SetTexture(0, "MainRenderTexture", TestInputTex);
-        VolumeShader.SetTexture(0, "Result", MainTex);
-        VolumeShader.SetFloat("_MyTime", Time.realtimeSinceStartup); // TODO rename MyTime
-        VolumeShader.Dispatch(0, Mathf.CeilToInt((float)Screen.width / 8.0f), Mathf.CeilToInt((float)Screen.height / 8.0f), 1);//Dispatch the main renderer
-        
-        CurFrame += 1.0f;
-    }
-
-    void OnRenderObject()
-    {
-        // Solution comes from here
-        // https://discussions.unity.com/t/unity-6-urp-depth-texture-is-black-not-available/1560743/3
-        // Global texture no longer works the same since unity 6, but it's still accessible there
-        VolumeShader.SetTextureFromGlobal(0, "_CameraDepthTexture", "_CameraDepthTexture");
     }
 }
