@@ -1,9 +1,14 @@
 using UnityEngine;
 
-public class AnimatedVDBRenderer : MonoBehaviour
+public class AnimatedVDBRenderer : MonoBehaviour, IVDBRenderer
 {
     int HasChangedInt = -1;
-    float CurFrame = 0;
+
+    public int RenderOrder { get => throw new System.NotImplementedException(); set => throw new System.NotImplementedException(); }
+    public VDBFileContent Asset { get => throw new System.NotImplementedException(); set => throw new System.NotImplementedException(); }
+
+
+    private int _curFrame = 0;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
@@ -14,7 +19,7 @@ public class AnimatedVDBRenderer : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
-        VolumeShader.SetInt("CurFrame", (int)Mathf.Floor(CurFrame));
+        VolumeShader.SetInt("CurFrame", (int)Mathf.Floor(CurFrame)); // TODO move this to renderer feature
         int i = (int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length);
         if (HasChangedInt != -1)
         {

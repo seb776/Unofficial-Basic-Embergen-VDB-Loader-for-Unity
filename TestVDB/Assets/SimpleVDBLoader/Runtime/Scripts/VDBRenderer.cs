@@ -7,9 +7,6 @@ using System.Threading.Tasks;
 using System.Threading;
 using System.Linq;
 
-// TODO kernel indices may have changed due to removed a lot of code
-
-
 
 
 // TODO this can be a first step to animation (simply storing each frame separately)
@@ -19,14 +16,12 @@ public class VDBRenderFrame
 
 }
 
-interface IVDBRenderer
-{
-    public int RenderOrder { get; set; }
-    public VDBFileContent Asset { get; set; } // Equivalent of mesh in meshrenderer
-}
+
 
 public class VDBRenderer : MonoBehaviour, IVDBRenderer
 {
+    public int RenderOrder { get; set; }
+    public VDBFileContent Asset { get; set; }
 
     public float GlobalFogAdjustment = 1;
     public Vector3 FogColor = new Vector3(75 / 255.0f, 75 / 255.0f, 75 / 255.0f);
@@ -34,51 +29,22 @@ public class VDBRenderer : MonoBehaviour, IVDBRenderer
     [Range(1, 10)]
     public int ShadowDistanceOffset = 1;
 
-    // Temp
-    public RenderTexture MainTex;
-    public MeshRenderer DebugView;
-    public RenderTexture TestOutputTex;
-    public RenderTexture TestInputTex;
-
 
     // Internals
     ComputeShader VolumeShader; // TODO go to renderer feature
     ComputeBuffer ShadowBuffer;
-    ComputeBuffer[] ValidVoxelSitesBuffer; // Array are for animation (each represneting a frame)
-    ComputeBuffer[] ValidVoxelSitesBuffer2;
 
+    ComputeBuffer ValidVoxelSitesBuffer; 
+    ComputeBuffer ValidVoxelSitesBuffer2;
+    Vector4[] NonZeroVoxels; // TODO This can go to importer instead of here ?
+    RenderTexture VolumeTex; // DDATexture write // This appears only used once for generating the VolumeTex2, can be moved to importer ?
+    Texture3D VolumeTex2; // DDATexture read // Unsure but appears to stores indices for DDAAlgorithm, can be moved to importer ?
 
-    RenderTexture VolumeTex;
-
-    Texture3D VolumeTex2; // Unsure but appears to stores indices for DDAAlgorithm
-
-    Vector4[] NonZeroVoxels;
-    Vector3[] Sizes; // TODO this can be "Size"
-
-    int IVDBRenderer.RenderOrder { get => throw new System.NotImplementedException(); set => throw new System.NotImplementedException(); }
-    VDBFileContent IVDBRenderer.Asset { get => throw new System.NotImplementedException(); set => throw new System.NotImplementedException(); }
-
-    private void CreateRenderTexture(ref RenderTexture ThisTex)
-    {
-        ThisTex = new RenderTexture(Screen.width, Screen.height, 24, RenderTextureFormat.ARGBFloat);
-        ThisTex.enableRandomWrite = true;
-        ThisTex.Create();
-    }
-
+    Vector3 Size; // TODO This can be obtained from the Asset ?
 
 
     void Start()
     {
-        CreateRenderTexture(ref MainTex);
-        this.gameObject.GetComponent<Camera>().targetTexture = TestInputTex;
-        DebugView.material.SetTexture("_BaseMap", MainTex);
-
-        VolumeShader = Resources.Load<ComputeShader>("RenderVolume");
-        var kernel = VolumeShader.FindKernel("RenderVolumetric");
-
-        Debug.Log("Dispatch ran: " + kernel);
-        Debug.Log("OutputTex valid: " + MainTex.IsCreated());
-
         //Load VDB Files and Parse
         // Asset.VDBContent Already parsed
         // TODO perhaps this could be done in the importer instead of here
@@ -121,23 +87,16 @@ public class VDBRenderer : MonoBehaviour, IVDBRenderer
                     }
                 }
             }
-            if (i3 == 0)
-            {
-                ValidVoxelSitesBuffer[i2] = new ComputeBuffer((int)CurOffset, 16);
-                ValidVoxelSitesBuffer[i2].SetData(NonZeroVoxels);
-                SHBuffer[i2] = new ComputeBuffer((int)CurOffset, 28);
-            }
-            else
-            {
-                ValidVoxelSitesBuffer2[i2] = new ComputeBuffer((int)CurOffset, 16);
-                ValidVoxelSitesBuffer2[i2].SetData(NonZeroVoxels);
-            }
+            ValidVoxelSitesBuffer = new ComputeBuffer((int)CurOffset, 16); // TODO Why here ? we appear to jsut ignore previous values and leak memory
+            ValidVoxelSitesBuffer.SetData(NonZeroVoxels);
         }
-        VolumeShader.SetVector("Size", VDBFile.Size);
+
 
         //Initialize Textures
         VolumeTex2 = new Texture3D((int)Sizes[0].x, (int)Sizes[0].y, (int)Sizes[0].z, TextureFormat.RGFloat, false);
+
         Debug.Log("Active Voxels: " + NonZeroVoxels.Length + ", Inactive Voxels: " + (VolumeTex2.width * VolumeTex2.height * VolumeTex2.depth - NonZeroVoxels.Length));
+        
         VolumeTex = new RenderTexture((int)Sizes[0].x, (int)Sizes[0].y, 0, RenderTextureFormat.RGFloat, RenderTextureReadWrite.sRGB);
         VolumeTex.enableRandomWrite = true;
         VolumeTex.volumeDepth = (int)Sizes[0].z;
@@ -147,23 +106,15 @@ public class VDBRenderer : MonoBehaviour, IVDBRenderer
 
         ShadowBuffer = new ComputeBuffer(VolumeTex2.width * VolumeTex2.height * VolumeTex2.depth, 8);
 
-        VolumeShader.SetBuffer(2, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(0, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(1, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(3, "ShadowBuffer", ShadowBuffer);
-        VolumeShader.SetBuffer(2, "UnityLights", UnityLightBuffer);
-        VolumeShader.SetBuffer(0, "UnityLights", UnityLightBuffer);
-        VolumeShader.SetInt("ScreenWidth", Screen.width);
-        VolumeShader.SetInt("ScreenHeight", Screen.height);
+
     }
 
     void OnApplicationQuit()
     {
         VolumeTex.Release();
         ShadowBuffer.Release();
-        if (ValidVoxelSitesBuffer != null) for(int i = 0; i < ValidVoxelSitesBuffer.Length; i++) ValidVoxelSitesBuffer[i].Release();
-        if (ValidVoxelSitesBuffer2 != null) for(int i = 0; i < ValidVoxelSitesBuffer2.Length; i++) ValidVoxelSitesBuffer2[i]?.Release();
+        ValidVoxelSitesBuffer.Release();
+        ValidVoxelSitesBuffer2.Release();
+
     }
-
-
 }

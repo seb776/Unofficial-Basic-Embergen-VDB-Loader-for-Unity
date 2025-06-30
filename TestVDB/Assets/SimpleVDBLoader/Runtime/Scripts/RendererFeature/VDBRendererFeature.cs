@@ -9,6 +9,7 @@ public class VDBRendererFeature : ScriptableRendererFeature
     public override void Create()
     {
         _vdbPass = new VDBRenderPass();
+
     }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)

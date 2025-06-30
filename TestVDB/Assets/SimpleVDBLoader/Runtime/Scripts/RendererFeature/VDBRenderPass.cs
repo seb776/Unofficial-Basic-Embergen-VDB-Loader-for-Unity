@@ -4,6 +4,10 @@ using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Rendering.Universal;
 
 
+// TODO kernel indices may have changed due to removed a lot of code
+
+VolumeShader = Resources.Load<ComputeShader>("RenderVolume");
+var kernel = VolumeShader.FindKernel("RenderVolumetric");
 ComputeBuffer UnityLightBuffer; // TODO can be common in renderer / pass
 Light[] UnityLights;
 UnityLight[] UnityLightData;
@@ -56,7 +60,16 @@ private void _initLightData()
     }
 }
 
+VolumeShader.SetBuffer(2, "ShadowBuffer", ShadowBuffer);
+VolumeShader.SetBuffer(0, "ShadowBuffer", ShadowBuffer);
+VolumeShader.SetBuffer(1, "ShadowBuffer", ShadowBuffer);
+VolumeShader.SetBuffer(3, "ShadowBuffer", ShadowBuffer);
+VolumeShader.SetBuffer(2, "UnityLights", UnityLightBuffer);
+VolumeShader.SetBuffer(0, "UnityLights", UnityLightBuffer);
+VolumeShader.SetInt("ScreenWidth", Screen.width);
+VolumeShader.SetInt("ScreenHeight", Screen.height);
 
+VolumeShader.SetVector("Size", VDBFile.Size);
 // Add a handle to the output buffer in your pass data
 class PassData
 {
