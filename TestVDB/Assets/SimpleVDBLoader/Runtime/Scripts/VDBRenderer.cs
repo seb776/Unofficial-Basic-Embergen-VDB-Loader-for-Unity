@@ -6,6 +6,7 @@ using UnityEditor;
 using System.Threading.Tasks;
 using System.Threading;
 using System.Linq;
+using System;
 
 
 
@@ -16,31 +17,30 @@ public class VDBRenderFrame
 
 }
 
-
-
-public class VDBRenderer : MonoBehaviour, IVDBRenderer
+[Serializable]
+public class VDBMaterial
 {
-    public int RenderOrder { get; set; }
-    public VDBFileContent Asset { get; set; }
-
     public float GlobalFogAdjustment = 1;
     public Vector3 FogColor = new Vector3(75 / 255.0f, 75 / 255.0f, 75 / 255.0f);
     public Vector3 BackgroundColor = new Vector3(0.1f, 0.1f, 0.1f);
     [Range(1, 10)]
     public int ShadowDistanceOffset = 1;
+}
+
+public class VDBRenderer : AVDBRenderer
+{
+    public override int RenderOrder { get; set; }
+    public override VDBFileContent Asset { get; set; }
 
 
     // Internals
-    ComputeShader VolumeShader; // TODO go to renderer feature
-    ComputeBuffer ShadowBuffer;
 
+    ComputeBuffer ShadowBuffer;
     ComputeBuffer ValidVoxelSitesBuffer; 
     ComputeBuffer ValidVoxelSitesBuffer2;
     Vector4[] NonZeroVoxels; // TODO This can go to importer instead of here ?
     RenderTexture VolumeTex; // DDATexture write // This appears only used once for generating the VolumeTex2, can be moved to importer ?
     Texture3D VolumeTex2; // DDATexture read // Unsure but appears to stores indices for DDAAlgorithm, can be moved to importer ?
-
-    Vector3 Size; // TODO This can be obtained from the Asset ?
 
 
     void Start()
@@ -50,6 +50,7 @@ public class VDBRenderer : MonoBehaviour, IVDBRenderer
         // TODO perhaps this could be done in the importer instead of here
         //Convert to own voxel format
         OpenVDBReader VDBFile = Asset.VDBContent;
+        
         for (int i3 = 0; i3 < Mathf.Min(VDBFile.Grids.Length, 2); i3++)
         {
             var CurGrid = i3;
@@ -58,9 +59,9 @@ public class VDBRenderer : MonoBehaviour, IVDBRenderer
             VDBFile.Size = OrigionalSize;
 
             int RepCount = 0;
-            OpenVDBReader.Node4 CurNode;
-            OpenVDBReader.Node3 CurNode2;
-            OpenVDBReader.Voxel Vox;
+            Node4 CurNode;
+            Node3 CurNode2;
+            Voxel Vox;
             Vector3Int ijk = new Vector3Int(0, 0, 0);
             Vector3 location2 = Vector3.zero;
             uint CurOffset = 0;
@@ -77,7 +78,7 @@ public class VDBRenderer : MonoBehaviour, IVDBRenderer
                         if (CurNode2.Children.TryGetValue(BitIndex3, out Vox))
                         {
                             location2 = new Vector3(VDBFile.Grids[CurGrid].Centers[i].z, VDBFile.Grids[CurGrid].Centers[i].x, VDBFile.Grids[CurGrid].Centers[i].y);
-                            float Val = System.BitConverter.ToSingle(System.BitConverter.GetBytes((uint)Vox.Density)) * 100000000000000000000000000000000000000.0f * 50.0f;
+                            float Val = System.BitConverter.ToSingle(System.BitConverter.GetBytes((uint)Vox.Density)) * 100000000000000000000000000000000000000.0f * 50.0f; // TODO constant, why ?
                             if (Val > 0.01f)
                             {
                                 NonZeroVoxels[CurOffset] = new Vector4(location2.x, location2.y, location2.z, Val);
@@ -93,28 +94,35 @@ public class VDBRenderer : MonoBehaviour, IVDBRenderer
 
 
         //Initialize Textures
-        VolumeTex2 = new Texture3D((int)Sizes[0].x, (int)Sizes[0].y, (int)Sizes[0].z, TextureFormat.RGFloat, false);
+        VolumeTex2 = new Texture3D((int)Asset.VDBContent.Size.x, (int)Asset.VDBContent.Size.y, (int)Asset.VDBContent.Size.z, TextureFormat.RGFloat, false);
 
         Debug.Log("Active Voxels: " + NonZeroVoxels.Length + ", Inactive Voxels: " + (VolumeTex2.width * VolumeTex2.height * VolumeTex2.depth - NonZeroVoxels.Length));
         
-        VolumeTex = new RenderTexture((int)Sizes[0].x, (int)Sizes[0].y, 0, RenderTextureFormat.RGFloat, RenderTextureReadWrite.sRGB);
+        VolumeTex = new RenderTexture((int)Asset.VDBContent.Size.x, (int)Asset.VDBContent.Size.y, 0, RenderTextureFormat.RGFloat, RenderTextureReadWrite.sRGB);
         VolumeTex.enableRandomWrite = true;
-        VolumeTex.volumeDepth = (int)Sizes[0].z;
+        VolumeTex.volumeDepth = (int)Asset.VDBContent.Size.z;
         VolumeTex.dimension = UnityEngine.Rendering.TextureDimension.Tex3D;
         VolumeTex.Create();
 
 
         ShadowBuffer = new ComputeBuffer(VolumeTex2.width * VolumeTex2.height * VolumeTex2.depth, 8);
-
-
     }
 
-    void OnApplicationQuit()
+    void OnDestroy()
     {
         VolumeTex.Release();
         ShadowBuffer.Release();
         ValidVoxelSitesBuffer.Release();
         ValidVoxelSitesBuffer2.Release();
+    }
 
+    public override ComputeBuffer GetShadowBuffer()
+    {
+        return ShadowBuffer;
+    }
+
+    public override Vector3 GetSize()
+    {
+        return Asset.VDBContent.Size;
     }
 }
