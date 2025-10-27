@@ -1,6 +1,6 @@
 using UnityEngine;
 
-abstract class AVDBRenderer : MonoBehaviour
+public abstract class AVDBRenderer : MonoBehaviour
 {
     public abstract int RenderOrder { get; set; }
     public abstract VDBFileContent Asset { get; set; } // Equivalent of mesh in meshrenderer

@@ -1,7 +1,9 @@
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Rendering.Universal;
+#if UNITY_RENDER_GRAPH
+using UnityEngine.Rendering.RenderGraphModule;
+#endif
 
 
 // TODO kernel indices may have changed due to removed a lot of code
@@ -85,7 +87,7 @@ public class VDBRenderPass : ScriptableRenderPass
     }
     private void _handleLightData() // This has to be done in renderer feature / pass
     {
-        VolumeShader.SetInt("LightCount", UnityLights.Length); // TODO this has to be passed on renderer feature level
+        _volumeShader.SetInt("LightCount", UnityLights.Length); // TODO this has to be passed on renderer feature level
         for (int i2 = 0; i2 < UnityLights.Length; i2++)
         {//If any unity lights have changed, reset the lighting data
             Light ThisLight = UnityLights[i2];
@@ -103,7 +105,7 @@ public class VDBRenderPass : ScriptableRenderPass
                 HasChanged = true;
                 UnityLightData[i2].Type = Type;
             }
-            if (UnityLightData[i2].Type == 1) VolumeShader.SetVector("SunDir", UnityLightData[i2].Direction);
+            if (UnityLightData[i2].Type == 1) _volumeShader.SetVector("SunDir", UnityLightData[i2].Direction);
             Vector3 Col = new Vector3(col[0], col[1], col[2]) * ThisLight.intensity;
             if (!UnityLightData[i2].Col.Equals(Col))
             {
@@ -160,54 +162,55 @@ public class VDBRenderPass : ScriptableRenderPass
                 threadGroupsZ: 1
             );
 
-            VolumeShader.SetTextureFromGlobal(0, "_CameraDepthTexture", "_CameraDepthTexture");
+            _volumeShader.SetTextureFromGlobal(0, "_CameraDepthTexture", "_CameraDepthTexture");
             if (Sizes.Length > 1 || CurFrame < 2 || HasChanged)
             {//Rebuild the Volume Texture
-                VolumeShader.SetBool("Copy1", false); // TODO no longer in compute shader
-                VolumeShader.SetVector("Size", Sizes[(int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length)]);
-                VolumeShader.SetBuffer(1, "NonZeroVoxels", ValidVoxelSitesBuffer[i]);
-                VolumeShader.SetTexture(1, "DDATextureWrite", VolumeTex);
-                VolumeShader.SetTexture(3, "DDATextureWrite", VolumeTex);
-                VolumeShader.Dispatch(3, Mathf.CeilToInt(Sizes[i].x / 8.0f), Mathf.CeilToInt(Sizes[i].y / 8.0f), Mathf.CeilToInt(Sizes[i].z / 8.0f));
+                _volumeShader.SetBool("Copy1", false); // TODO no longer in compute shader
+                _volumeShader.SetVector("Size", Sizes[(int)Mathf.Floor(CurFrame) % (ValidVoxelSitesBuffer.Length)]);
+                _volumeShader.SetBuffer(1, "NonZeroVoxels", ValidVoxelSitesBuffer[i]);
+                _volumeShader.SetTexture(1, "DDATextureWrite", VolumeTex);
+                _volumeShader.SetTexture(3, "DDATextureWrite", VolumeTex);
+                _volumeShader.Dispatch(3, Mathf.CeilToInt(Sizes[i].x / 8.0f), Mathf.CeilToInt(Sizes[i].y / 8.0f), Mathf.CeilToInt(Sizes[i].z / 8.0f));
 
-                VolumeShader.Dispatch(1, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1);
+                _volumeShader.Dispatch(1, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1);
                 if (ValidVoxelSitesBuffer2[i] != null)
                 {
-                    VolumeShader.SetBuffer(1, "NonZeroVoxels", ValidVoxelSitesBuffer2[i]);
-                    VolumeShader.SetBool("Copy1", true);  // TODO no longer in compute shader
-                    VolumeShader.Dispatch(1, Mathf.CeilToInt(ValidVoxelSitesBuffer2[i].count / 1023.0f), 1, 1);
+                    _volumeShader.SetBuffer(1, "NonZeroVoxels", ValidVoxelSitesBuffer2[i]);
+                    _volumeShader.SetBool("Copy1", true);  // TODO no longer in compute shader
+                    _volumeShader.Dispatch(1, Mathf.CeilToInt(ValidVoxelSitesBuffer2[i].count / 1023.0f), 1, 1);
                 }
 
                 Graphics.CopyTexture(VolumeTex, VolumeTex2);
             }
 
 
-            VolumeShader.SetTexture(0, "DDATexture", VolumeTex2);
-            VolumeShader.SetTexture(2, "DDATexture", VolumeTex2);
-            VolumeShader.SetBuffer(2, "NonZeroVoxels", ValidVoxelSitesBuffer[i]);
-            VolumeShader.SetInt("ShadowDistanceOffset", ShadowDistanceOffset);
+            _volumeShader.SetTexture(0, "DDATexture", VolumeTex2);
+            _volumeShader.SetTexture(2, "DDATexture", VolumeTex2);
+            _volumeShader.SetBuffer(2, "NonZeroVoxels", ValidVoxelSitesBuffer[i]);
+            _volumeShader.SetInt("ShadowDistanceOffset", ShadowDistanceOffset);
 
             if (CurFrame < 2 || HasChanged || Sizes.Length > 1 || true)
             {
-                VolumeShader.Dispatch(2, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1); //Calculate the Volume Shading
+                _volumeShader.Dispatch(2, Mathf.CeilToInt(ValidVoxelSitesBuffer[i].count / 1023.0f), 1, 1); //Calculate the Volume Shading
             }
 
 
-            VolumeShader.SetMatrix("_CameraInverseProjection", Camera.main.projectionMatrix.inverse);
-            VolumeShader.SetMatrix("CameraToWorld", Camera.main.cameraToWorldMatrix);
+            _volumeShader.SetMatrix("_CameraInverseProjection", Camera.main.projectionMatrix.inverse);
+            _volumeShader.SetMatrix("CameraToWorld", Camera.main.cameraToWorldMatrix);
 
             var camera = context.cmd.
-            VolumeShader.SetFloat("_NearClip", camera.nearClipPlane);
-            VolumeShader.SetFloat("_FarClip", camera.farClipPlane);
+            _volumeShader.SetFloat("_NearClip", camera.nearClipPlane);
+            _volumeShader.SetFloat("_FarClip", camera.farClipPlane);
             this.gameObject.GetComponent<Camera>().Render();
-            VolumeShader.SetTexture(0, "MainRenderTexture", TestInputTex);
-            VolumeShader.SetTexture(0, "Result", MainTex);
-            VolumeShader.SetFloat("_MyTime", Time.realtimeSinceStartup);
-            VolumeShader.Dispatch(0, Mathf.CeilToInt((float)Screen.width / 8.0f), Mathf.CeilToInt((float)Screen.height / 8.0f), 1);//Dispatch the main renderer
+            _volumeShader.SetTexture(0, "MainRenderTexture", TestInputTex);
+            _volumeShader.SetTexture(0, "Result", MainTex);
+            _volumeShader.SetFloat("_MyTime", Time.realtimeSinceStartup);
+            _volumeShader.Dispatch(0, Mathf.CeilToInt((float)Screen.width / 8.0f), Mathf.CeilToInt((float)Screen.height / 8.0f), 1);//Dispatch the main renderer
 
         }
     }
 
+#if UNITY_RENDER_GRAPH
     public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer contextData)
     {
         var universalCameraData = contextData.Get<UniversalCameraData>();
@@ -221,5 +224,11 @@ public class VDBRenderPass : ScriptableRenderPass
             // Use ComputeGraphContext instead of RasterGraphContext.
             builder.SetRenderFunc((PassData data, ComputeGraphContext context) => ExecutePass(data, context));
         }
+    }
+#endif
+    // TODO else (only executed when not in rendergraph ?)
+    public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
+    {
+        throw new System.NotImplementedException();
     }
 }
